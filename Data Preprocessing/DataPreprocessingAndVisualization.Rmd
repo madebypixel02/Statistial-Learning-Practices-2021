@@ -357,7 +357,7 @@ Note we have used the same name for CODIGOINE. This will allow as to join the da
 ```{r}
 # CODIGOINE must be in the same format (char) and with same numbers
 paro.aggr$CODIGOINE=factor(str_pad(paro.aggr$CODIGOINE, 5, pad = "0"))
-total.data=merge(part.aggr, paro.aggr, by="CODIGOINE", all.x=T)
+total.data=merge(part.aggr, paro.aggr, by="CODIGOINE", all.x=T) # all.x=T: keep all rows even if some have missing data
 ```
 
 Take care: there are 32 missing values:
