@@ -1,0 +1,824 @@
+---
+title: "Data Preprocessing and Visualization"
+subtitle: "Or how to get the first insights from raw data"
+author: "Statistical Learning, Bachelor in Data Science and Engineering"
+date: 'UC3M, 2021'
+output:
+  html_document: 
+    css: my-theme.css
+    theme: cerulean
+    highlight: tango
+    number_sections: no
+    toc: yes
+    toc_depth: 1
+  pdf_document:
+    css: my-theme.css
+    theme: cerulean
+    highlight: tango
+    number_sections: yes
+    toc: yes
+    toc_depth: 1
+editor_options:
+  chunk_output_type: console
+---
+
+
+```{r global_options, include=T, echo = F}
+knitr::opts_chunk$set(echo = T, warning=FALSE, message=FALSE)
+```
+
+```{r, echo=FALSE}
+htmltools::img(src = knitr::image_uri(file.path("uc3m.jpg")), 
+               alt = 'logo', 
+               style = 'position:absolute; top:0; right:0; padding:10px;',
+               width="600",
+               height="80")
+```
+
+## Introduction
+
+Data processing, and in particular, feature engineering is the process of generating features (variables) useful as input for machine-learning tools. The better the input, the better the prediction.
+
+<br>
+
+> Coming up with features is difficult, time-consuming, requires expert knowledge. ‘Applied machine learning’ is basically feature engineering
+— Prof. Andrew Ng.
+
+***
+
+**Data-science steps:**
+
+1. Prepare the input: collect, clean, transform, filter, aggregate, merge, verify, etc.
+2. Prepare a model: build, estimate, validate, predict, etc.
+3. Prepare the output: communicate the results, interpret, publish, etc.
+
+<br>
+
+Feature engineering focuses on the first step, with emphasis in getting information: collect, clean, transform, filter, aggregate, merge, verify, etc.
+
+<br>
+
+Half of the success of a machine-learning project is the features used. The other 50% is the model.
+
+<br>
+
+> Feature engineering is the process of transforming raw data into features that better represent the underlying problem to the predictive models, resulting in improved model accuracy on unseen data.
+— Dr. Jason Brownlee
+
+## What's a feature?
+
+A feature is a specific representation on top of raw data: a measurable attribure or variable, typically a column in a dataset. 
+
+Basically two types:
+
+1. Raw features: obtained directly from the dataset with no extra data manipulation or engineering. 
+2. Derived features: usually obtained from feature extraction (from other data attributes).
+
+## Data cleaning 
+
+- Remove duplicate or irrelevant observations
+
+- Fix or remove typos or errors 
+
+- Outliers
+
+- Missing values
+
+## Feature extraction
+
+- Get features from many data sources.
+
+- Smooth (filter) some variables: for instance, getting monthly information from hourly data. Or getting municipality information from census data.
+
+- Discretization of variables: for instance, creating two groups (Young and Old) from age data to reduce nose. Or encoding the month of the year.
+
+- Normalization: unify the units of our variables (scale or standardization).
+
+- Combination of variables: for instance, density of population (from inhabitants and area). Or PCA for more complex datasets
+
+- Variable selection: how to select the most *promising* variables from the available dozens or hundreds ones.
+
+- Most advanced tool nowadays: **deep learning** can build features through the hidden layers (deep), specially useful for images, text, video, etc.
+
+
+## Today's session
+
+**Objective:** practice with feature extraction and data cleaning to learn about some socio-economic variables in Spain. In particular, we are going to learn about the causes of election participation, unemployment rates, etc.
+
+Organization:
+
+1. Get variables from many sources
+2. Obtain information through feature engineering
+3. Make cool graphs
+4. Deal with outliers and missings
+
+***
+
+<br>
+
+We will use R, hence start by loading some packages:
+```{r}
+library(tidyverse)
+library(leaflet)
+library(rgdal)
+library(stringr)
+library(htmltab)
+```
+
+## First data source
+
+From Ministerio del Interior (Spain), we have data at very low level (poll station) about elections.
+
+In particular, this part of the analysis is based on Esteban Moro's script to build the map of participation by census area: https://github.com/emoro/master201819/blob/master/01_Mapa_participacion_2016.Rmd
+
+which is similar to the one created by Kiko Llaneras and Nacho Carretero in this article 
+https://elpais.com/politica/2019/03/28/actualidad/1553783809_455746.html
+
+***
+
+Download first data from [Ministerio del Interior](http://www.infoelectoral.mir.es/infoelectoral/min/areaDescarga.html) (last available elections: Nov 2019)
+
+
+```{r}
+url = "http://www.infoelectoral.mir.es/infoelectoral/docxl/apliextr/02201911_MESA.zip"
+
+temp <- tempfile()
+download.file(url,dest="data/MESA.zip")
+unzip("data/MESA.zip", exdir = "data/")   
+```
+
+We will use the file "09021911.DAT" that contains information about participation by poll station. See "Ficheros.doc" for more details.
+
+Read now data file and assign names
+```{r}
+participacion <- read.fwf("data/09021911.DAT",	
+                          widths=c(2,4,2,1,	
+                                   2,2,3,2,4,1,	
+                                   7,7,7,7,7,7,7,7,7,7,7,	
+                                   1),	
+                          colClasses=c(rep("numeric",4),	
+                                       rep("character",6),	
+                                       rep("numeric",11),	
+                                       "character"))
+
+colnames(participacion) <- c("tipo","year","month","vuelta","ccaa","provincia","municipio","distrito","seccion","mesa","censo","censo_escrutinio","censo_cere","total_cere","votantes_primer","votantes_segundo","blanco","nulos","votos","afirmativos","negativos","datos_oficiales")
+```
+
+Take a look
+```{r}
+head(participacion)
+```
+
+This is high granularity data: information up to *mesa electoral*
+
+We will base our analysis to: ccaa, provincia, municipio, censo, votos
+```{r}
+participacion = participacion %>% select(ccaa, provincia, municipio, censo, votos)
+```
+
+***
+
+<br>
+
+Now we are ready to start with our **feature engineering**:
+
+<br>
+
+**Filter out** some noisy information
+
+We will focus on national elections
+```{r}
+participacion = participacion %>% filter(ccaa<99, provincia<99, municipio<999)
+```
+
+<br>
+
+
+**Feature extraction**
+
+First, build participation level (from votos and censo). Then build the CODIGOINE identification for municipality, which we use later as the variable to merge more datasets.
+```{r}
+participacion = participacion %>% mutate(part=votos/censo,
+                                         CODIGOINE = str_trim(paste0(participacion$provincia,participacion$municipio)))
+```
+
+Take a look:
+```{r}
+str(participacion)
+head(participacion)
+```
+
+Nicer!
+
+Note there are close to 60000 poll stations, 17 CCAA, 52 provinces, and more than 8000 municipalities
+
+Convert char variables into factor ones: this conversion will be used in R models as encoding (creation of dummies)
+```{r}
+participacion$ccaa = as.factor(participacion$ccaa)
+participacion$provincia = as.factor(participacion$provincia)
+participacion$CODIGOINE = as.factor(participacion$CODIGOINE)
+```
+
+
+***
+
+Just a break to understand how participation is explained by granularity
+```{r}
+summary(lm(part ~ ccaa, participacion))$adj.r.squared
+summary(lm(part ~ provincia, participacion))$adj.r.squared
+# the next model takes a while
+# summary(lm(part ~ CODIGOINE, participacion))$adj.r.squared
+```
+
+ccaa level explains 22% of variation in participation, provincia explains 26%, and municipio explains 44%
+
+***
+
+Let's continue. High noise because the high granularity. Some CCAA with censo<=10, or censo>=1000:
+
+```{r}
+participacion %>% ggplot(aes(x=ccaa,y=censo)) + geom_boxplot(fill="lightblue") 
+```
+
+
+**Aggregation:**
+
+We will use information at municipality level, hence we are going to aggregate results to that level.
+
+We will reduce noise (variability) at the price of losing also some information:
+
+```{r}
+part.aggr <- participacion %>% 	
+  group_by(ccaa,provincia,municipio,CODIGOINE) %>% 	
+  summarize(total_votos=sum(votos),total_censo=sum(censo)) %>%	
+  mutate(total_part = total_votos/total_censo)
+```
+
+Take a look:
+```{r}
+head(part.aggr)
+```
+
+Participation by provincia
+```{r}
+part.aggr %>% ggplot(aes(x=provincia,y=total_part)) + geom_boxplot(fill="lightblue") 
+```
+
+Boxplots are very useful to identify differences in provincias.
+
+**Outliers:**
+
+Outliers are atypical/extreme values that are far from the rest of the values
+
+One of the most useful tools to identify outliers is the boxplot: for instance, municipalities with participation=100%, or less than 40%.
+
+This is called *univariate identification*. There are other useful univariate tools:
+
+Identification by the *3-sigma rule*:
+
+```{r}
+mu <- mean(part.aggr$total_part)
+sigma <- sd(part.aggr$total_part)
+
+sum(part.aggr$total_part < mu - 3*sigma | part.aggr$total_part > mu + 3*sigma)
+```
+
+Identification by *IQR*:
+
+```{r}
+QI <- quantile(part.aggr$total_part, 0.25)
+QS <- quantile(part.aggr$total_part, 0.75)
+IQR = QS-QI
+
+sum(part.aggr$total_part < QI - 1.5*IQR | part.aggr$total_part > QS + 1.5*IQR)
+```
+
+Depending on the context we must decide what to do:
+
+- Remove them:
+  - Can a municipality have a participation greater than 100% or smaller than 0%? 
+
+- Leave them:
+
+  - Can a municipality have a participation smaller than 40%?
+
+
+**Can we create more variables?**
+
+```{r}
+# municipalities by ccaa
+part.aggr %>% ggplot(aes(x=reorder(ccaa, ccaa, length))) +geom_bar(aes(fill=ccaa)) + 
+  labs(caption="Municipios por CCAA",
+       x = "", y = "")+ theme(legend.position="none")
+
+```
+
+We just need imagination...
+
+Also note we still do not have the names for provinces, ccaa, etc.
+
+## Second data source
+
+To explain participation level, besides provincia or municipality, we need more variables like the unemployment rate, or the population age, or the income for each municipality.
+
+Let's start by downloading the unemployment rate in Spain by municipality.
+
+Source: [Datos Abiertos Gobierno de España](https://datos.gob.es)
+
+
+```{r}
+url = "https://sede.sepe.gob.es/es/portaltrabaja/resources/sede/datos_abiertos/datos/Paro_por_municipios_2019_csv.csv"
+paro = read.csv2(url, skip=1, header=T, sep=";", encoding="latin1")
+#paro = read.csv2("data/Paro_por_municipios_2019_csv.csv", skip=1, header=T, sep=";", encoding="latin1")
+```
+
+Take a look:
+```{r}
+str(paro)
+head(paro)
+```
+
+Here we have a lot of information!
+
+Select relevant variables and filter out the month (we are just interested in 2019 year): **aggregation**
+```{r}
+paro = paro %>% select(c(1,4,6,7,8,9))
+colnames(paro) = c("Mes", "CCAA", "Provincia", "CODIGOINE", "Municipio", "Paro")
+
+paro$Mes = as.factor(paro$Mes)
+paro.aggr <- paro %>% 	
+  group_by(CCAA, Provincia, Municipio, CODIGOINE) %>% 	
+  summarize(total_paro=mean(Paro)) 
+```
+
+Note we have used the same name for CODIGOINE. This will allow as to join the data sets
+
+**Merge**
+```{r}
+# CODIGOINE must be in the same format (char) and with same numbers
+paro.aggr$CODIGOINE=factor(str_pad(paro.aggr$CODIGOINE, 5, pad = "0"))
+total.data=merge(part.aggr, paro.aggr, by="CODIGOINE", all.x=T)
+```
+
+Take care: there are 32 missing values:
+
+```{r}
+sum(is.na(total.data))
+```
+
+**Missing values**
+
+A missing value is a non-present vaule in a variable
+
+Most of the real datasets have missing values. We need to identify them and decide what to do
+
+They are usually represented by NULL or NA, but sometimes the are given by specific codes (for instance 9999)
+
+Distribution of NAs using mice package
+
+```{r}
+library(mice)
+md.pattern(total.data)
+```
+
+There are 8 municipalities with missing values. They are in the 4 paro variables
+
+What to do?
+
+- If they are just a few and not relevant, we can delete them. Say less than 5% of the sample
+
+- Otherwise:
+
+  - We can remove rows when most of their corresponding variables are empty
+  
+  - We can remove columns when most of their corresponding rows are empty
+
+  - In other cases, we can impute NAs:
+  
+    - Simple imputation (use the mean for non-NAs, or the median, mode, etc.)
+    - Regressions: train with non-NAs to predict NAs
+    - k-nearest neighbour (kNN) imputation
+    - Multiple imputation: for each NA, multiple imputations are found to capture better sample variability, and then a pooling approach is performed to have the final imputation   
+
+Because we only have a few NAs, let's remove them (8 rows):
+
+```{r}
+total.data <- na.omit(total.data)
+```
+
+Later we will see more advanced approaches
+
+
+Now we have the names for CCAA, Provincia, and Municipio
+
+```{r}
+lm.fit = lm(total_part ~ provincia, total.data) 
+resid = residuals(lm.fit)
+qplot(total.data$total_paro, resid)
+summary(lm(total_part ~ provincia + total_paro, total.data))
+```
+
+Paro is not informative: it is in absolute values (not relative), hence it is related to population mainly
+
+We need total population by municipality in order to create Paro in percentage
+
+## Third data source
+```{r}
+municipios.moredata = read.csv(url("http://www.est.uc3m.es/nogales/municipios2017.csv"), header=T, sep=",")
+# municipios.moredata = read.csv("data/municipios2017.csv", header=T, sep=",")
+head(municipios.moredata)
+```
+
+Merge
+```{r}
+# CODIGOINE must be in the same format (char) and with same numbers
+municipios.moredata$CODIGOINE=factor(str_pad(municipios.moredata$CODIGOINE, 5, pad = "0"))
+total.data=merge(total.data, municipios.moredata, by="CODIGOINE")
+```
+
+Feature extraction:
+```{r}
+total.data$habitantes = total.data$HOMBRES+total.data$MUJERES
+total.data$densidad = total.data$habitantes/sqrt(total.data$SUPERFICIE)
+total.data$sexratio = total.data$HOMBRES/total.data$MUJERES
+total.data$jovenes = total.data$de0.18/total.data$habitantes
+total.data$seniors = total.data$masde68/total.data$habitantes
+```
+
+More feature extraction: now we can create the unemployment rate
+```{r}
+total.data$paro = total.data$total_paro/total.data$habitantes
+```
+
+Let's explain know the participation by unemployment rate
+```{r}
+lm.fit = lm(total_part ~ provincia, total.data) 
+resid = residuals(lm.fit)
+summary(lm(total_part ~ provincia + paro, total.data))
+```
+
+The beta coefficient for paro is the slope of the scatter plot
+
+We can also reduce the noise by discretizing variables, at the cost of reducing also the information
+
+**Outliers**
+
+```{r}
+resid %>% as.data.frame() %>% ggplot(aes(x=resid)) + geom_boxplot(fill="lightblue") 
+```
+
+Previous tools (3-sigma, IQR) were based on univariate information
+
+Multivariate information is better to detect outliers, but more difficult:
+
+- Based on regression (target-based outliers)
+
+- Based on multivariate tools (clustering, Mahalanobis distance, etc.)
+
+- Based on dimensionality reduction (PCA)
+
+Let's use the package outliers to detect municipalities with participation anomalies (respect to unemployment):
+
+```{r}
+library(outliers)
+
+idx = outlier(resid, logical=T)
+# outlier
+total.data[idx,]
+```
+
+No unemployment but 37% election participation
+
+**Discretize age**
+
+```{r}
+# Create the column young, and indicate whether town is young or not
+total.data$EdadG[total.data$jovenes > .17] <- 'Young'
+total.data$EdadG[total.data$jovenes <= .17] <- 'Senior'
+total.data$EdadG = factor(total.data$EdadG)
+
+# Show counts
+prop.table(table(total.data$EdadG))
+```
+
+**Discretize unemployment**
+
+```{r}
+total.data$paroD[total.data$paro <= 0.05] <- 'bajo'
+total.data$paroD[total.data$paro <= 0.10 & total.data$paro > .05] <- 'medio'
+total.data$paroD[total.data$paro > 0.10] <- 'alto'
+
+total.data$paroD = factor(total.data$paroD)
+
+prop.table(table(total.data$paroD))
+```
+
+```{r}
+ggplot(filter(total.data,paro>0), aes(paro, total_part, group=Provincia, size=habitantes, color=EDAD_MEDIA)) + scale_x_sqrt(breaks=c(0.05,0.1), label=c("5%","10%"))+
+  geom_point(alpha=0.5) + geom_smooth(method=lm,se=F) +
+  facet_wrap(~ Provincia) +
+  scale_color_gradient(low="green", high="red") +
+  theme_minimal()+ theme(legend.position="none") + 
+  labs(title = "Participación elecciones vs Paro", subtitle="(color denota edad media municipio)",caption="uc3m - statistical learning",
+       x = "", y = "")
+```
+
+
+## Just another break
+
+Let's map some variables. To do that, we need the boundaries (polygons) for the municipalities. We can download the polygons in the shapefile (SHP) format from http://opendata.esri.es/datasets/municipios-ign
+```{r}
+municipios <- readOGR("data/Municipios_IGN/Municipios_IGN.shp")
+WGS84 <- CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs")	
+municipios <- spTransform(municipios,CRSobj=WGS84)
+
+datos.mapa <- merge(municipios,total.data,by="CODIGOINE")	
+```
+
+Now we can plot for instance our main variable: participation
+```{r}
+pal <- colorQuantile("Blues", datos.mapa$total_part, na.color="white")
+
+datos.mapa %>% leaflet() %>% 
+  addProviderTiles(providers$CartoDB.Positron) %>% 
+ # addTiles("MapBox") %>%
+  setView(lng=-3.69, lat=40.42, zoom = 9) %>%
+  addPolygons(fillColor = ~ pal(total_part),fillOpacity = 0.6,color = "white",weight = .5, label = ~ paste0(datos.mapa$Municipio," ", round(total_part*100,2),"%")) 
+```
+
+Or we can plot the unemployment rate in the same way
+```{r}
+pal <- colorQuantile("Greens", datos.mapa$paro, na.color="white")
+# pal <- colorFactor(palette = 'Greens', domain = datos.mapa$paroD, na.color="white")
+
+datos.mapa %>% leaflet() %>% 
+  addProviderTiles(providers$CartoDB.Positron) %>% 
+ # addTiles("MapBox") %>%
+  setView(lng=-3.69, lat=40.42, zoom = 9) %>%
+  addPolygons(fillColor = ~ pal(paro),fillOpacity = 0.6,color = "white",weight = .5, label = ~ paste0(datos.mapa$Municipio," ", round(paro*100,2),"%")) 
+```
+
+España vacía
+```{r}
+total.data$habitantesD[total.data$habitantes <= 5000] <- 'pocos'
+total.data$habitantesD[total.data$habitantes > 5000] <- 'muchos'
+total.data$habitantesD = as.factor(total.data$habitantesD)
+
+datos.mapa.empty <- merge(municipios,filter(total.data, habitantes<5000),by="CODIGOINE")	
+
+pal <- colorFactor(
+  palette = c('white', 'skyblue2'),
+  domain = datos.mapa.empty$habitantesD,na.color="white"
+)
+
+datos.mapa.empty %>% leaflet() %>% 
+  addProviderTiles(providers$CartoDB.Positron) %>% 
+ # addTiles("MapBox") %>%
+  setView(lng=-3.69, lat=40.42, zoom = 6) %>%
+  addPolygons(fillColor = ~ pal(habitantesD),weight = .5,fillOpacity = 0.8,color = "white", label = ~ paste0(datos.mapa.empty$Municipio," ", habitantes," hab")) 
+```
+
+Empty Spain in blue
+
+46.6M hab total
+
+84% of towns has less than 50000 population
+
+12% of Spanish population live there
+
+## Last data source
+
+Let's try to get now the income (per capita)
+
+Only for municipalities with more than 1000 inhabitants
+
+No Navarra, No País Vasco:
+"País Vasco y Navarra que quedan fuera del ámbito territorial del impuesto"
+
+
+```{r}
+renta=htmltab("https://www.agenciatributaria.es/AEAT/Contenidos_Comunes/La_Agencia_Tributaria/Estadisticas/Publicaciones/sites/irpfmunicipios/2018/jrubik7fe28e5d4daeab97eaf47efe29f0716914ab405e.html")
+# write.csv(renta, file="data/renta2018.csv", row.names=F) 
+# renta = read.csv(file="data/renta2018.csv")
+renta = renta %>% drop_na()
+```
+
+
+Feature extraction:
+```{r}
+renta = renta %>% select(c(1,4,7))
+renta$V1 = str_extract(renta$V1, "[0-9]+")
+colnames(renta)=c("CODIGOINE", "habitantes2", "renta")
+renta$habitantes2 = as.numeric(gsub(".","", renta$habitantes2, fixed=T))
+renta$renta = as.numeric(gsub(".","", renta$renta, fixed=T))
+```
+
+Merge:
+```{r}
+# CODIGOINE must be in the same format (char) and with same numbers
+renta$CODIGOINE=factor(str_pad(renta$CODIGOINE, 5, pad = "0"))
+total.data=merge(total.data, renta, by="CODIGOINE", all.x=T)
+sum(is.na(total.data$renta))
+```
+
+Note we had 8120 municipalities with complete information, but after adding income we only have 2939: we have missed 2/3 of the municipalities!!!
+
+**Missing values: advanced approaches**
+
+Some advanced approaches:
+
+    - Simple imputation (use the mean for non-NAs, or the median, mode, etc.)
+    - Regressions: train with non-NAs to predict NAs
+    - k-nearest neighbour (kNN) imputation
+    - Multiple imputation: for each NA, multiple imputations are found to capture better sample variability, and then a pooling approach is performed to have the final imputation 
+
+**Imputation by the median**
+
+```{r}
+total.data$renta_imp_median = total.data$renta
+total.data$renta_imp_median[is.na(total.data$renta)] = median(total.data$renta, na.rm=T)
+```
+
+Is it a good method in our case?
+
+The same, but grouping by provincia
+```{r}
+total.data = total.data %>% group_by(provincia) %>%
+mutate(renta_imp_provincia=ifelse(is.na(renta),median(renta,na.rm=TRUE),renta))
+```
+
+Take care: still NAs in País Vasco and Navarra
+
+**Imputation by regression**
+
+First, train a model with non-NAs:
+
+```{r}
+i.na = is.na(total.data$renta)
+renta.model <- lm(renta ~ paro + EDAD_MEDIA + densidad + total_part, data = total.data[!i.na,])
+summary(renta.model)
+```
+
+Then, predict the NAs:
+
+```{r}
+total.data$renta_imp_reg = total.data$renta
+total.data$renta_imp_reg[i.na]=predict(renta.model, newdata = total.data[i.na,])
+```
+
+Valid if $R^2$ is relatively high, not the case
+
+**Multiple imputation**
+
+For each NA, multiple imputations are found to capture better sample variability, and then a pooling approach is performed to have the final imputation 
+
+MICE (Multivariate Imputation via Chained Equations): widely used
+
+With mice, each variable has its own imputation  method (for continuous variables, binary, categorical, etc.)
+
+```{r}
+mice.obj=mice(total.data[,c(2,3,7,16,24,25,26,27,28,33)], method = 'rf')
+mice.obj.imp=mice::complete(mice.obj)
+total.data$renta_imp_mice = mice.obj.imp$renta
+```
+
+
+Sort income
+```{r}
+total.data %>% arrange(desc(renta)) %>% select(Municipio, Provincia, renta, EdadG, paroD) %>% head(10)
+
+total.data %>% arrange(desc(renta_imp_mice)) %>% select(Municipio, Provincia, renta, renta_imp_mice, EdadG, paroD, habitantes) %>% head(10)
+```
+
+
+**Analyze income in Spain**
+
+With incomplete information about income:
+
+```{r}
+data.map = merge(municipios,total.data,by="CODIGOINE")
+
+pal <- colorQuantile("Blues", data.map$renta, na.color="white")
+
+data.map	 %>% leaflet() %>% 
+  addProviderTiles(providers$CartoDB.Positron) %>% 
+  setView(lng=-3.69, lat=40.42, zoom = 9) %>%
+  addPolygons(fillColor = ~ pal(renta),opacity = 0.2,fillOpacity = 0.6,color = "white",weight = .5, label = ~ paste0(Municipio,": ", renta))
+```
+
+With complete information:
+
+```{r}
+pal <- colorQuantile("Blues", data.map$renta_imp_mice, na.color="white")
+
+data.map	 %>% leaflet() %>% 
+  addProviderTiles(providers$CartoDB.Positron) %>% 
+  setView(lng=-3.69, lat=40.42, zoom = 9) %>%
+  addPolygons(fillColor = ~ pal(renta_imp_mice),opacity = 0.2,fillOpacity = 0.6,color = "white",weight = .5, label = ~ paste0(Municipio,": ", renta_imp_mice))
+```
+
+## Analyze Participation
+
+Plot the relation between Participation and Income (at province level):
+```{r}
+total.data %>% filter(renta_imp_mice>10000) %>%
+ggplot(aes(x=renta_imp_mice, y=total_part, group=Provincia, size=habitantes, color=EDAD_MEDIA)) + 
+  scale_x_log10(breaks=c(20000,60000), label=c("20K","60K"))+
+  geom_point(alpha=0.5) + geom_smooth(method=lm,se=F) +
+  facet_wrap(~ Provincia) +
+  scale_color_gradient(low="green", high="red") +
+  theme_minimal()+ theme(legend.position="none") + 
+  labs(title = "Participación elecciones vs Renta", subtitle="(color denota edad media municipio)", caption="uc3m - statistical learning",
+       x = "", y = "")
+```
+
+Let's make some regression models to understand better the relations:
+```{r}
+lm(total_part ~ Provincia, total.data) %>% summary()
+
+lm(total_part ~ Provincia + log(paro+1)*log(renta_imp_mice)+poly(EDAD_MEDIA,2), total.data) %>% summary()
+
+cor(log(total.data$renta_imp_mice),log(total.data$paro+1))
+```
+
+
+```{r}
+lm.fit = lm(total_part ~ Provincia, total.data) 
+resid = residuals(lm.fit)
+qplot(log(total.data$paro+1), resid)
+qplot(log(total.data$renta_imp_mice), resid)
+qplot(total.data$EDAD_MEDIA, resid)
+```
+
+Relations, besides Provincia, are weak
+
+## Scale
+
+For some models, it is required when features have different ranges 
+
+The models can then equally weight each feature. Otherwise a feature measured in meters will have more weight than the same feature in km 
+
+The disadvantage is that we lose variability information
+
+We can either standardize (remove the mean and divide by the standard deviation) or normalize
+
+1. Normalization:
+```{r}
+total.data$rentaNormalized <- (total.data$renta_imp_mice - min(total.data$renta_imp_mice))/(max(total.data$renta_imp_mice) - min(total.data$renta_imp_mice))
+summary(total.data$rentaNormalized)
+```
+
+2. Standardization 
+```{r}
+total.data$rentaNormalized <- scale(total.data$renta_imp_mice)
+summary(total.data$rentaNormalized)
+```
+
+**Scale effect:**
+```{r}
+boxplot(total.data[,c("total_part", "EDAD_MEDIA", "densidad", "paro", "renta_imp_mice")], las = 2, cex.max = 0.8, col = "darkslateblue")
+
+boxplot(scale(total.data[,c("total_part", "EDAD_MEDIA", "densidad", "paro", "renta_imp_mice")]), las = 2, cex.max = 0.8, col = "darkslateblue")
+```
+
+Note variances are the same (=1)
+
+
+## Encoding
+
+Most statistical and machine-learning models require the predictors to be in some sort of numeric encoding to be used. For example, linear regression required numbers so that it can assign slopes to each of the predictors.
+
+The most common encoding is to make simple dummy variables: if we have a predictor with $c$ levels, then $c-1$ dummies are needed. In this way, the $X$ matrix is full rank.
+
+```{r}
+lm(total_part ~ Provincia + log(paro+1) + log(renta_imp_mice)+poly(EDAD_MEDIA,2), total.data) %>% summary()
+
+# X matrix
+X = model.matrix(~ Provincia + log(paro+1) + log(renta_imp_mice)+poly(EDAD_MEDIA,2), data=total.data)[,-1]  # skip column of ones, useful in lasso or ridge regression
+# y variable
+y = total.data$total_part
+```
+
+You need to encode (or use a factor variable) for instance: month of the year, day of the week, etc. **Why?**
+
+## Conclusions
+
+- Remember: feature engineering is the process of generating features (variables) useful as input for machine-learning tools. The better the input, the better the prediction.
+
+- Feature extraction creates new features from original raw variables
+
+- Do not confuse with feature selection: how to get a subset of the features
+
+- Feature selection or variable selection is better understood in a regression context
+
+- PCA can also be used for feature extraction
+
+- You need to deal always with outliers and missing values
+
+
+
+
+
+
+
+
