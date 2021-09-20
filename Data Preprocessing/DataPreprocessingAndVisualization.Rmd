@@ -450,11 +450,21 @@ More feature extraction: now we can create the unemployment rate
 total.data$paro = total.data$total_paro/total.data$habitantes
 ```
 
+Compute the correlation between the participation and the unemployment rate
+```{r}
+cor(total.data$total_part,total.data$paro)
+```
+
 Let's explain know the participation by unemployment rate
 ```{r}
 lm.fit = lm(total_part ~ provincia, total.data) 
 resid = residuals(lm.fit)
 summary(lm(total_part ~ provincia + paro, total.data))
+```
+
+Scatterplot to view correlation
+```{r}
+qplot(total.data$paro, resid)
 ```
 
 The beta coefficient for paro is the slope of the scatter plot
