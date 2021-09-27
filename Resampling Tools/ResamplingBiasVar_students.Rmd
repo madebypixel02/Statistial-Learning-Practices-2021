@@ -1,0 +1,232 @@
+---
+title: "Resampling and Bias-Var Decomposition"
+author: "Statistical Learning, Bachelor in Data Science and Engineering"
+date: 'UC3M, 2021'
+output:
+  html_document: 
+    css: my-theme.css
+    theme: cerulean
+    highlight: tango
+    number_sections: no
+    toc: no
+    toc_depth: 1
+  pdf_document:
+    css: my-theme.css
+    theme: cerulean
+    highlight: tango
+    number_sections: yes
+    toc: yes
+    toc_depth: 1
+editor_options:
+  chunk_output_type: console
+---
+
+
+```{r global_options, include=T, echo = F}
+knitr::opts_chunk$set(echo = T, warning=FALSE, message=FALSE)
+```
+
+```{r, echo=FALSE}
+htmltools::img(src = knitr::image_uri(file.path("uc3m.jpg")), 
+               alt = 'logo', 
+               style = 'position:absolute; top:0; right:0; padding:10px;',
+               width="600",
+               height="80")
+```
+
+# MSE Decomposition
+
+
+For a given test sample $x_0$ and a prediction $\hat{y}_0\equiv \hat{y}_0(x_0)$, the MSE decomposition is
+		\[
+	E(y_0 - \hat{y}_0(x_0))^2 = \sigma^2 + \text{Bias}(\hat{y}_0(x_0))^2 + \text{Var}(\hat{y}_0(x_0))
+	\]
+
+Through a simulation, we are going to illustrate the decomposition.
+
+Consider the data generating process is: $y=10x^2-2x+5+\epsilon$ where $\epsilon\sim \mathcal{N}(0,100^2)$
+
+Simulation of 100 samples from the model
+
+```{r}
+
+f = function(x) {
+  10*x^2-2*x+5
+}
+
+get_sim_data = function(f, sample_size = 100) {
+  x = runif(n = sample_size, min = -6, max = 6) # x is assumed uniform
+  y = f(x) + rnorm(n = sample_size, mean = 0, sd = 100)
+  data.frame(x, y)
+}
+```
+
+Let's fit 4 polynomial models (they are all linear regressions) to fit the train data: a naive model, a linear one, a quadratic model (the real one), and a overfitted model.
+
+```{r}
+sim_data = get_sim_data(f, sample_size = 100)
+
+fit_1 = lm(y ~ 1, data = sim_data)
+fit_2 = lm(y ~ poly(x, degree = 1), data = sim_data)
+fit_3 = lm(y ~ poly(x, degree = 2), data = sim_data)
+fit_4 = lm(y ~ poly(x, degree = 9), data = sim_data)
+```
+
+Plot the four fitted models plus the real output (black)
+
+```{r}
+plot(y ~ x, data = sim_data)
+grid = seq(from = -6, to = 6, by = 0.1)
+lines(grid, predict(fit_1, newdata = data.frame(x = grid)), 
+      col = "red", lwd = 2, lty = 2)
+lines(grid, predict(fit_2, newdata = data.frame(x = grid)), 
+      col = "blue", lwd = 2, lty = 3)
+lines(grid, predict(fit_3, newdata = data.frame(x = grid)), 
+      col = "green", lwd = 2, lty = 4)
+lines(grid, predict(fit_4, newdata = data.frame(x = grid)), 
+      col = "orange", lwd = 2, lty = 5)
+lines(grid, f(grid), col = "black", lwd = 5)
+legend(x = 3.2, y = -40, 
+       c("y ~ 1", "y ~ poly(x, 1)", "y ~ poly(x, 2)",  "y ~ poly(x, 9)", "real"), 
+       col = c("red", "blue", "green", "orange", "black"), lty = c(2, 3, 4, 5, 1), lwd = 2)
+```
+
+Note the naive and linear models are bad approximations, but the quadratic and high-order polynomial are good ones.
+
+Let's compute now the MSE decomposition for a test point $x_0=5$, for each of the 4 models. To do that, we simulate the experiment 1000 times.
+
+```{r}
+n_sims = 1000
+n_models = 4
+x0 = 5.0
+predictions = matrix(0, nrow = n_sims, ncol = n_models)
+
+# WRITE YOUR CODE HERE
+```
+
+Out-of-sample evaluation:
+
+```{r}
+# WRITE YOUR CODE HERE
+```
+
+
+
+# Resampling tools
+
+## Data splitting (validation set approach)
+
+```{r}
+n = 100
+data = get_sim_data(f, sample_size = n)
+n.train = 0.8*n
+ind.train = sample(1:n, n.train, replace = F)
+train = data[ind.train,]
+test = data[-ind.train,]
+
+fit_1 = lm(y ~ 1, data = train)
+fit_2 = lm(y ~ poly(x, degree = 1), data = train)
+fit_3 = lm(y ~ poly(x, degree = 2), data = train)
+fit_4 = lm(y ~ poly(x, degree = 9), data = train)
+
+pred.test.1 = predict(fit_1, newdata = test)
+pred.test.2 = predict(fit_2, newdata = test)
+pred.test.3 = predict(fit_3, newdata = test)
+pred.test.4 = predict(fit_4, newdata = test)
+
+MSE.test.1 = mean((pred.test.1 - test$y)^2)
+MSE.test.2 = mean((pred.test.2 - test$y)^2)
+MSE.test.3 = mean((pred.test.3 - test$y)^2)
+MSE.test.4 = mean((pred.test.4 - test$y)^2)
+
+MSE.test.1 
+MSE.test.2 
+MSE.test.3 
+MSE.test.4
+```
+
+For just a given sample, as it was a real data set, we can see how the testing MSE increases with overfitted models, as expected. 
+
+## Cross Validation (Leave-One-Out)
+
+```{r}
+# WRITE YOUR CODE HERE
+```
+
+
+
+## k-fold Cross-Validation
+
+Besides k-fold CV is more efficient than LOOCV, it often gives more accurate estimates of the test error rate than does LOOCV.
+
+```{r}
+# WRITE YOUR CODE HERE
+```
+
+Similar conclusions but more efficient.
+
+
+# The Bootstrap
+
+The Bootstrap procedure
+
+1. Resample data with replacement
+2. Calculate the statistic of interest for each resample
+3. Repeat 1 and 2 $B$ times
+4. Use the bootstrap distribution for inference
+
+```{r}
+library(bootstrap)
+library(boot)
+```
+
+Example:  small randomized experiment were done with 16 mice, 7 to treatment group and 9 to control group. Treatment was intended to prolong survival after a test surgery. The output is days of survival following surgery.
+
+```{r}
+mouse.c
+
+mouse.t
+```
+
+Scientific question: Is there a significant difference?
+
+```{r}
+mean(mouse.t) 
+
+mean(mouse.c)
+```
+
+It seems the treatment has a higher survival rate than the control, but is it significant or noise? The sample size is very small...
+
+Classic t-test (assuming normal distribution and similar variances)
+
+```{r}
+t.test(mouse.t ,mouse.c ,alternative="greater", var.equal=TRUE)
+```
+
+Can we trust in those assumptions?
+
+And what about the difference between the medians?
+
+```{r}
+median(mouse.t) 
+
+median(mouse.c)
+```
+
+The difference in medians, 48 days, is larger than the difference in means, 30.6 days. But again, is it significant?
+
+```{r}
+MedianDiff.boot = replicate(1000, median(sample(mouse.t,replace=TRUE)) - median(sample(mouse.c,replace=TRUE)))
+
+hist(MedianDiff.boot)
+abline(v=0, col="red2")
+
+# standard deviation of median difference
+sd(MedianDiff.boot)
+
+# 95% Percentile CI
+quantile(MedianDiff.boot, c(.025, .975))
+```
+
+Not significant
