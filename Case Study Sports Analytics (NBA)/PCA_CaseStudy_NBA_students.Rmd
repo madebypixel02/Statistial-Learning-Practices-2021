@@ -1,0 +1,336 @@
+---
+title: "PCA: sports analytics"
+author: "Statistical Learning, Bachelor in Data Science and Engineering"
+date: 'UC3M, 2021'
+output:
+  html_document: 
+    css: my-theme.css
+    theme: cerulean
+    highlight: tango
+    number_sections: no
+    toc: no
+    toc_depth: 1
+  pdf_document:
+    css: my-theme.css
+    theme: cerulean
+    highlight: tango
+    number_sections: yes
+    toc: yes
+    toc_depth: 1
+editor_options:
+  chunk_output_type: console
+---
+
+
+```{r global_options, include=T, echo = F}
+knitr::opts_chunk$set(echo = T, warning=FALSE, message=FALSE)
+```
+
+```{r, echo=FALSE}
+htmltools::img(src = knitr::image_uri(file.path("uc3m.jpg")), 
+               alt = 'logo', 
+               style = 'position:absolute; top:0; right:0; padding:10px;',
+               width="600",
+               height="80")
+```
+
+# Motivation
+
+**Sports analytics:** collection of relevant, historical, statistics that can provide a competitive advantage to a team or individual. 
+
+In this case study, we will analyze data from NBA and try to answer these questions
+
+- How can we know who are the best all-time NBA players based on basketball skills (not only points)?
+
+- Do NBA players have skills that exceed their predefined positions (point guard, shooting guard, small forward, power forward, and center)?
+
+- Can we help NBA coachers to make better decisions? Are they really making right decisions?
+
+Based on data of all-time leaders
+from here: http://stats.nba.com/alltime-leaders/
+
+```{r}
+# delete everything
+rm(list=ls()) 
+
+library(tidyverse)
+library(GGally) # ggplot2-based visualization of correlations
+library(factoextra) # ggplot2-based visualization of pca
+```
+
+## Load and prepare data  
+
+The dataset contains skill performance of the most important NBA players in the history
+
+See the glossary here: http://stats.nba.com/alltime-leaders/
+
+Performance is per game
+
+In R, you can use the api-library nbastatR
+
+In Python, you can use nba_api
+
+```{r}
+historical_players.df = read.csv(file = "nba.csv", header=T, sep=";")
+
+glimpse(historical_players.df)
+
+```
+
+These are the 1200 best players in the NBA history
+
+## Missing values
+
+```{r}
+hist(rowMeans(is.na(historical_players.df)))
+
+barplot(colMeans(is.na(historical_players.df)), las=2)
+
+# skip players with NA information in any variable
+historical_players.df <-
+  historical_players.df[rowSums(is.na(historical_players.df)) == 0,]
+dim(historical_players.df)
+
+```
+
+Conclusions? What can we do?
+
+Create the data frame
+
+```{r}
+nba <- historical_players.df[,3:ncol(historical_players.df)]
+nba <- as.data.frame(sapply(nba, as.numeric ))
+names = historical_players.df[,2]
+
+dim(nba)
+summary(nba)
+```
+
+Around 200 players were deleted.
+
+## Some feature engineering
+
+Any variable to be created? Any variable to be deleted?
+
+```{r}
+## ADD YOUR CODE HERE
+```
+
+
+
+# Descriptive Analysis
+
+Our input has dimension $p=14$, that implies $2^p$ different relations between the variables.
+
+Dimension 1: univariate analysis for all 14 variables
+
+```{r}
+boxplot(nba, las=2, col="darkblue")
+
+# scale or not to scale?
+boxplot(scale(nba), las=2, col="darkblue")
+```
+
+Dimension 2:  bivariate analysis (scatter plots), in total 91
+
+```{r}
+# multiple scatter plot: all relations, 14^2, in dimension 2
+R = cor(nba)   # correlation matrix
+pairs(nba)
+# any information?
+```
+
+Better to use a more efficient package
+
+```{r}
+# Correlations with GGally
+ggcorr(nba, label = T)
+```
+
+Dimension 3: in total 364 relations, but no way to obtain information... This is why we need an analytical tool to reduce the dimension
+
+Finally, note there are variables highly correlated, especially the most related ones (like ftm and fta)
+
+# PCA
+
+From dimension 14 to dimension 2
+
+```{r}
+pca = prcomp(nba, scale=T)
+# pca = princomp(nba, cor=T) # the same, but using SVD instead of eigen decomposition 
+summary(pca)
+```
+
+Insights?
+
+This is the same, but using mathematical format; here, eigenvalues denote variances and eigenvectors denote loadings:
+
+```{r}
+eigen(R)  
+
+```
+
+## How many components?
+
+```{r}
+screeplot(pca,main="Screeplot",col="blue",type="barplot",pch=19)
+```
+
+Nicer with factoextra package:
+
+```{r}
+fviz_screeplot(pca, addlabels = TRUE)
+```
+
+Note with 2 components we explain 70% of variability
+
+## Interpretation of components
+
+First component:
+
+```{r}
+barplot(pca$rotation[,1], las=2, col="darkblue")
+```
+
+Any hint for the meaning of the 1st PC?
+
+Note the sum of the squared loadings (eigenvectors) is equal to 1
+
+```{r}
+sum(pca$rotation[,1]^2)
+```
+
+That means squared loadings are easier to interpret than the loadings
+
+I.e. they are like percentages (numbers between 0 and 1)
+
+So let's plot squared loadings instead
+
+They are called contribution of variables to components
+
+```{r}
+fviz_contrib(pca, choice = "var", axes = 1)
+```
+
+The red dashed line on the graph above indicates the expected average contribution 
+
+If the contribution of the variables were uniform, the expected value would be 1/length(variables) = 1/14 = 7%
+
+Now we can rank the players by their first PC scores: best historical players in terms of performance:
+
+```{r}
+## ADD YOUR CODE HERE
+```
+
+Second component:
+
+```{r}
+## ADD YOUR CODE HERE
+```
+
+Any insight about this component?
+
+Maybe we can get more insights by ranking the players using this component:
+
+```{r}
+## ADD YOUR CODE HERE
+```
+
+Contribution of variables to second component:
+
+Take care because we loose the sign (to get contribution in percentage)
+
+```{r}
+fviz_contrib(pca, choice = "var", axes = 2)
+```
+
+Once we have interpreted the meaning of the first two components, let's see the contribution of each player to components
+
+For the $i$-th player and first component, the contribution is: $z_{1,i}^2 / \lambda_1 / n$, which is a number between 0 and 1
+
+```{r}
+head(get_pca_ind(pca)$contrib[,1]) # this is in %, that is between 0 and 100
+head((pca$x[,1]^2)/(pca$sdev[1]^2))/dim(nba)[1] # this is between 0 and 1
+```
+
+Let's visualize all players contributions to first component (global performance):
+
+```{r}
+fviz_contrib(pca, choice = "ind", axes = 1)
+```
+
+Let's see the first names:
+
+```{r}
+names[order(get_pca_ind(pca)$contrib[,1],decreasing=T)][1:10]
+# It is very similar to names[order(pca$x[,1])][1:10] but in percentage
+```
+
+Finally, let's make a zoom to see the top-20 players in contributions:
+
+```{r}
+names_z1 = names[order(get_pca_ind(pca)$contrib[,1],decreasing=T)]
+fviz_contrib(pca, choice = "ind", axes = 1, top=20)+scale_x_discrete(labels=names_z1)
+```
+
+## The Biplot
+
+Biplot: observations and variables in same graph (using first 2 components)
+
+```{r}
+biplot(pca)
+```
+
+Not informative in this case: too many players
+
+Nicer and using contributions (instead of loadings), without players:
+
+```{r}
+fviz_pca_var(pca, col.var = "contrib")
+```
+
+Nicer but again too much information:
+
+```{r}
+fviz_pca_biplot(pca, repel = TRUE)
+```
+
+## The Scores
+
+Remember, for the $j$-th principal component: $Z_j = X a_j$, $a_j$ denotes the loadings, and $Z_j$ denotes the scores
+
+Let's plot the first two scores, using colors for minutes played:
+
+```{r}
+data.frame(z1=-pca$x[,1],z2=pca$x[,2]) %>% 
+  ggplot(aes(z1,z2,label=names,color=min)) + geom_point(size=0) +
+  labs(title="PCA", x="PC1", y="PC2") +
+  theme_bw() + scale_color_gradient(low="lightblue", high="darkblue")+theme(legend.position="bottom") + geom_text(size=2, hjust=0.6, vjust=0, check_overlap = TRUE) 
+```
+
+The two first PCs seem independent, but this is not always the same. What is true is that they are always uncorrelated.
+
+The same, but using colors for games played:
+
+```{r}
+data.frame(z1=-pca$x[,1],z2=pca$x[,2]) %>% 
+  ggplot(aes(z1,z2,label=names,color=gp)) + geom_point(size=0) +
+  labs(title="PCA", x="PC1", y="PC2") +
+  theme_bw() + scale_color_gradient(low="yellow", high="darkred")+theme(legend.position="bottom") + geom_text(size=2, hjust=0.6, vjust=0, check_overlap = TRUE) 
+```
+
+Insights?
+
+Are the better players playing more minutes in a game?
+
+```{r}
+## ADD YOUR CODE HERE
+```
+
+Are the better players playing more games?
+
+```{r}
+## ADD YOUR CODE HERE
+```
+
+
